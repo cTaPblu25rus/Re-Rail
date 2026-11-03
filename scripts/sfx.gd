@@ -17,6 +17,12 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.seed = 1234
+	for bus in ["Music", "SFX"]:
+		if AudioServer.get_bus_index(bus) == -1:
+			AudioServer.add_bus()
+			var i := AudioServer.bus_count - 1
+			AudioServer.set_bus_name(i, bus)
+			AudioServer.set_bus_send(i, "Master")
 	streams.step = _wav(_step())
 	streams.swing = _wav(_swing())
 	streams.hit = _wav(_hit())
@@ -25,13 +31,18 @@ func _ready() -> void:
 	streams.pickup = _wav(_pickup())
 	streams.clank = _wav(_clank())
 	streams.click = _wav(_click())
-	wind = _loop_player(_wind(), -10.0)
-	drone = _loop_player(_drone(), -16.0)
-	engine = _loop_player(_engine(), -80.0)
-	radio_static = _loop_player(_static(), -80.0)
-	radio_voice = _loop_player(_voice(), -80.0)
+	streams.bark = _wav(_bark())
+	streams.shot = _wav(_shot())
+	streams.bang = _wav(_bang())
+	streams.chime = _wav(_chime())
+	wind = _loop_player(_wind(), -10.0, "Music")
+	drone = _loop_player(_drone(), -22.0, "Music")
+	engine = _loop_player(_engine(), -80.0, "SFX")
+	radio_static = _loop_player(_static(), -80.0, "SFX")
+	radio_voice = _loop_player(_voice(), -80.0, "SFX")
 	for i in 10:
 		var p := AudioStreamPlayer.new()
+		p.bus = "SFX"
 		add_child(p)
 		_players.append(p)
 
@@ -63,13 +74,14 @@ func set_radio(open: bool, signal_level: float) -> void:
 
 # ------------------------------------------------------------ синтез
 
-func _loop_player(samples: PackedFloat32Array, vol: float) -> AudioStreamPlayer:
+func _loop_player(samples: PackedFloat32Array, vol: float, bus: String) -> AudioStreamPlayer:
 	var wav := _wav(samples)
 	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	wav.loop_end = samples.size()
 	var p := AudioStreamPlayer.new()
 	p.stream = wav
 	p.volume_db = vol
+	p.bus = bus
 	add_child(p)
 	p.play()
 	return p
@@ -223,6 +235,47 @@ func _click() -> PackedFloat32Array:
 	var b := _buf(0.04)
 	for i in b.size():
 		b[i] = randf_range(-1, 1) * exp(-float(i) / RATE * 150.0)
+	return b
+
+
+func _bark() -> PackedFloat32Array:
+	var b := _buf(0.32)
+	for i in b.size():
+		var t := float(i) / RATE
+		var k := fmod(t, 0.16)
+		var f := 420.0 - k * 1500.0
+		b[i] = (sin(TAU * f * t) * 0.7 + randf_range(-1, 1) * 0.25) * exp(-k * 22.0)
+	return b
+
+
+func _shot() -> PackedFloat32Array:
+	var b := _buf(0.6)
+	var lp := 0.0
+	for i in b.size():
+		var t := float(i) / RATE
+		lp += (randf_range(-1, 1) - lp) * (0.6 * exp(-t * 8.0) + 0.05)
+		b[i] = (lp * 2.0 + sin(TAU * 55.0 * t) * 0.8) * exp(-t * 7.0)
+	return b
+
+
+func _bang() -> PackedFloat32Array:
+	var b := _buf(0.9)
+	var lp := 0.0
+	for i in b.size():
+		var t := float(i) / RATE
+		lp += (randf_range(-1, 1) - lp) * 0.3
+		b[i] = (lp * 1.5 + sin(TAU * (2200.0 - t * 1500.0) * t) * 0.3 * exp(-t * 4.0)) * exp(-t * 4.5)
+	return b
+
+
+## Мягкий перезвон: крафт, улучшение, добрые дела.
+func _chime() -> PackedFloat32Array:
+	var b := _buf(0.9)
+	for i in b.size():
+		var t := float(i) / RATE
+		var f := 523.25 if t < 0.15 else (659.25 if t < 0.3 else 783.99)
+		var st := 0.0 if t < 0.15 else (0.15 if t < 0.3 else 0.3)
+		b[i] = sin(TAU * f * t) * 0.5 * exp(-(t - st) * 5.0)
 	return b
 
 

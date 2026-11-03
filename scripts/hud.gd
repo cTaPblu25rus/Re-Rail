@@ -29,6 +29,7 @@ func _ready() -> void:
 
 
 func _process(_d: float) -> void:
+	ui.visible = game.state == "play" and not game.interior.open
 	_layout()
 	ui.queue_redraw()
 
@@ -43,14 +44,18 @@ func _layout() -> void:
 	buttons.clear()
 	var ctx: Dictionary = game.context()
 	buttons.append({"id": "context", "c": Vector2(s.x - 62, s.y - 138), "r": 26.0, "label": ctx.label, "on": ctx.kind != "none"})
-	buttons.append({"id": "flash", "c": Vector2(s.x - 118, s.y - 52), "r": 24.0, "label": "Фонарь", "on": not game.aboard})
+	if game.aboard:
+		buttons.append({"id": "bench", "c": Vector2(s.x - 118, s.y - 52), "r": 24.0, "label": "Внутрь", "on": absf(game.train_v) < 5.0})
+	else:
+		buttons.append({"id": "flash", "c": Vector2(s.x - 118, s.y - 52), "r": 24.0, "label": "Фонарь", "on": true})
 	buttons.append({"id": "attack", "c": Vector2(s.x - 48, s.y - 52), "r": 26.0, "label": "Атака", "on": not game.aboard})
 	var n: int = game.ITEMS.size()
-	var slot := 40.0
+	var slot := 38.0
 	var x0 := s.x * 0.5 - (n * (slot + 4.0)) * 0.5
 	for i in n:
 		buttons.append({"id": "item:" + game.ITEMS[i], "rect": Rect2(x0 + i * (slot + 4.0), s.y - 50, slot, slot), "on": true})
 	buttons.append({"id": "radio", "rect": Rect2(s.x - 206, 8, 96, 48), "on": true})
+	buttons.append({"id": "pause", "rect": Rect2(164, 8, 24, 24), "on": true})
 
 
 func _hit_button(p: Vector2) -> Dictionary:
@@ -71,6 +76,10 @@ func _tuner_rect() -> Rect2:
 # ------------------------------------------------------------ ввод
 
 func _input(event: InputEvent) -> void:
+	if game.state != "play" or game.menu.is_open() or game.interior.open:
+		if not touches.is_empty():
+			_release_all()
+		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_touch_down(event.index, event.position)
@@ -136,6 +145,13 @@ func _touch_up(idx: int) -> void:
 	touches.erase(idx)
 
 
+## Меню открылось посреди касаний — отпустить всё, чтобы Илья не шагал сам.
+func _release_all() -> void:
+	for idx in touches.keys():
+		_touch_up(idx)
+	touches.clear()
+
+
 func _has_kind(k: String) -> bool:
 	for t in touches.values():
 		if t.kind == k:
@@ -167,8 +183,12 @@ func _button(id: String, down: bool) -> void:
 		game.toggle_flashlight()
 	elif id == "attack":
 		game.attack()
+	elif id == "bench":
+		game.interior.enter()
 	elif id == "radio":
 		game.toggle_radio()
+	elif id == "pause":
+		game.menu.pause_menu()
 	elif id.begins_with("item:"):
 		game.use_item(id.trim_prefix("item:"))
 
@@ -214,10 +234,22 @@ func _draw_ui() -> void:
 	ui.draw_string(font, rr.position + Vector2(40, 42), "радио", HORIZONTAL_ALIGNMENT_LEFT, 54, 10, Color(0.7, 0.7, 0.6))
 
 	# ресурсы
-	ui.draw_string(font, Vector2(s.x - 206, 72), "Уголь %d   Хлам %d" % [int(game.inv.coal), game.inv.scrap], HORIZONTAL_ALIGNMENT_LEFT, 120, 11, Color(0.9, 0.85, 0.7))
-	ui.draw_string(font, Vector2(s.x - 206, 86), "Батарея %d%%" % int(st.battery), HORIZONTAL_ALIGNMENT_LEFT, 120, 11, Color(0.95, 0.9, 0.4))
+	var inv: Dictionary = game.inv
+	_txt(Vector2(s.x - 206, 70), "Уголь %d/%d  Хлам %d" % [int(inv.coal), int(game.coal_cap()), inv.scrap], 10, Color(0.9, 0.85, 0.7))
+	_txt(Vector2(s.x - 206, 82), "Ткань %d  Химия %d" % [inv.cloth, inv.chem], 10, Color(0.85, 0.82, 0.75))
+	_txt(Vector2(s.x - 206, 94), "Батарея %d%%" % int(st.battery), 10, Color(0.95, 0.9, 0.4))
+	if game.train_hp < 100.0:
+		var hc := Color(1, 0.4, 0.3) if game.train_hp <= 0.0 else Color(0.9, 0.7, 0.5)
+		_txt(Vector2(s.x - 206, 106), "Дрезина %d%%" % int(game.train_hp), 10, hc)
 
 	_draw_minimap(Vector2(s.x - 54, 54), 46.0)
+
+	# пауза
+	var pr := Rect2(164, 8, 24, 24)
+	ui.draw_rect(pr, PANEL)
+	ui.draw_rect(pr, EDGE, false, 1.0)
+	ui.draw_rect(Rect2(pr.position + Vector2(8, 6), Vector2(3, 12)), Color(0.9, 0.85, 0.7))
+	ui.draw_rect(Rect2(pr.position + Vector2(13, 6), Vector2(3, 12)), Color(0.9, 0.85, 0.7))
 
 	# тюнер
 	if game.radio_open and not game.finished:
@@ -263,6 +295,12 @@ func _draw_ui() -> void:
 		_text_center(s * 0.5 + Vector2(0, -30), "RE-RAIL: Хроники Пепла", 26, Color(1, 0.8, 0.5))
 		_text_center(s * 0.5 + Vector2(0, 0), "Пролог пройден. Дочь жива.", 15, Color(0.95, 0.9, 0.8))
 		_text_center(s * 0.5 + Vector2(0, 22), "Продолжение следует: Тайшет, конец магистрали…", 12, Color(0.75, 0.75, 0.7))
+
+
+## Текст с тёмной обводкой — читается и на снегу, и в темноте.
+func _txt(p: Vector2, text: String, size: int, c: Color) -> void:
+	ui.draw_string_outline(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 4, Color(0, 0, 0, 0.85))
+	ui.draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, c)
 
 
 func _vignette(s: Vector2, c: Color) -> void:
@@ -313,6 +351,8 @@ func _round_button(b: Dictionary) -> void:
 	match b.id:
 		"context":
 			_px(c - Vector2(7, 9), ["..#.#.#", "..#.#.#", ".##.#.#", "#######", "#######", ".######", "..#####", "...###."], Color(0.95, 0.75, 0.6, a))
+		"bench":
+			_px(c - Vector2(7, 9), ["...#...", "..###..", ".#####.", "#######", "#.###.#", "#.#.#.#", "#.###.#", "#######"], Color(1.0, 0.7, 0.4, a))
 		"flash":
 			var on: bool = game.flashlight_on
 			_px(c - Vector2(4, 11), [".###.", "#####", ".###.", ".###.", ".###.", ".###.", ".###.", ".###.", ".###.", ".###."], Color(0.75, 0.75, 0.72, a))
@@ -328,10 +368,13 @@ func _draw_hotbar() -> void:
 		"ammo": [".#.#.#", ".#.#.#", "######", "######", "######", "######"],
 		"medkit": ["..##..", "######", "##..##", "#....#", "##..##", "######"],
 		"crowbar": ["....##", ".....#", ".....#", "....#.", "...#..", ".##..."],
+		"shotgun": ["......", "######", "######", "##....", "#.....", "......"],
+		"grenade": ["..##..", ".#..#.", "######", "######", "######", ".####."],
 		"torch": ["..##..", ".####.", "..##..", "..#...", "..#...", "..#..."],
 		"cans": [".####.", "######", "#....#", "#.##.#", "#....#", "######"],
 	}
-	var cols := {"ammo": Color(0.85, 0.7, 0.3), "medkit": Color(0.9, 0.9, 0.88), "crowbar": Color(0.75, 0.3, 0.25), "torch": Color(1, 0.6, 0.2), "cans": Color(0.8, 0.25, 0.2)}
+	var cols := {"ammo": Color(0.85, 0.7, 0.3), "medkit": Color(0.9, 0.9, 0.88), "crowbar": Color(0.75, 0.3, 0.25),
+		"shotgun": Color(0.55, 0.45, 0.35), "torch": Color(1, 0.6, 0.2), "cans": Color(0.8, 0.25, 0.2), "grenade": Color(0.5, 0.6, 0.4)}
 	for b in buttons:
 		if not b.has("rect"):
 			continue
@@ -340,13 +383,16 @@ func _draw_hotbar() -> void:
 			continue
 		var it := id.trim_prefix("item:")
 		var r: Rect2 = b.rect
-		var count: int = game.inv[it]
+		var count: int = game.item_count(it)
+		var icon_id := it
+		if it == "weapon":
+			icon_id = game.weapon
 		var active: bool = it == "torch" and game.torch_left > 0.0
 		ui.draw_rect(r, PANEL)
 		ui.draw_rect(r, Color(1, 0.6, 0.2) if active else EDGE, false, 1.5)
-		_px(r.position + Vector2(9, 6), icons[it], cols[it] if count > 0 else Color(0.35, 0.35, 0.33))
+		_px(r.position + Vector2(8, 6), icons[icon_id], cols[icon_id] if count > 0 else Color(0.35, 0.35, 0.33))
 		ui.draw_string(font, r.position + Vector2(r.size.x - 14, r.size.y - 4), str(count), HORIZONTAL_ALIGNMENT_LEFT, 14, 10, Color(1, 1, 0.9))
-		_text_center(Vector2(r.get_center().x, r.end.y + 9), game.ITEM_NAMES[it], 8, Color(0.85, 0.82, 0.72))
+		_text_center(Vector2(r.get_center().x, r.end.y + 9), game.item_name(it), 8, Color(0.85, 0.82, 0.72))
 
 
 func _draw_minimap(c: Vector2, r: float) -> void:
@@ -359,7 +405,20 @@ func _draw_minimap(c: Vector2, r: float) -> void:
 	if absf(ry - c.y) < r:
 		var hw := sqrt(r * r - (ry - c.y) * (ry - c.y))
 		ui.draw_line(Vector2(c.x - hw, ry), Vector2(c.x + hw, ry), Color(0.55, 0.5, 0.45), 2.0)
-	var pts := [[Vector2(2760, -150), Color(0.8, 0.35, 0.25), 4.0]]
+	var goal_c := Color(0.8, 0.35, 0.25)
+	var pts := [[game.goal.pos, goal_c, 4.0]]
+	for n in game.npcs:
+		if not n.hidden and not (n.id == "dog" and game.dog_joined):
+			pts.append([n.pos, Color(0.4, 0.95, 0.5), 2.5])
+	for ff in game.fireflies:
+		pts.append([ff, Color(0.85, 1.0, 0.4), 2.0])
+	if game.dog_joined and not game.aboard:
+		pts.append([game.dog.pos, Color(0.75, 0.65, 0.5), 2.0])
+	var sniff: Dictionary = game.sniffed_pile()
+	if not sniff.is_empty():
+		var sp2: Vector2 = to_map.call(sniff.pos)
+		if sp2.distance_to(c) < r - 2.0:
+			ui.draw_arc(sp2, 4.0 + 1.5 * sin(game.time * 5.0), 0, TAU, 16, Color(1, 0.9, 0.5), 1.0)
 	for p in game.piles:
 		if not p.looted:
 			pts.append([p.pos, Color(0.7, 0.7, 0.6), 1.5])
@@ -372,7 +431,7 @@ func _draw_minimap(c: Vector2, r: float) -> void:
 		var mp: Vector2 = to_map.call(pt[0])
 		if mp.distance_to(c) < r - 2.0:
 			ui.draw_circle(mp, pt[2], pt[1])
-		elif pt[1] == Color(0.8, 0.35, 0.25):
+		elif pt[1] == goal_c:
 			# станция за краем — стрелка на ободе
 			var dir := (mp - c).normalized()
 			ui.draw_circle(c + dir * (r - 3.0), 3.0, pt[1])

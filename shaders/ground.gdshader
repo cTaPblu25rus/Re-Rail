@@ -4,6 +4,10 @@ shader_type canvas_item;
 
 uniform sampler2D noise : repeat_enable, filter_nearest;
 uniform float rail_y = 0.0;
+uniform vec3 grass_a = vec3(0.16, 0.22, 0.10);
+uniform vec3 grass_b = vec3(0.28, 0.30, 0.14);
+uniform vec3 dirt_a = vec3(0.22, 0.18, 0.13);
+uniform vec3 dirt_b = vec3(0.30, 0.25, 0.18);
 
 varying vec2 wpos;
 
@@ -22,8 +26,8 @@ void fragment() {
 	float h = hash(p);
 
 	// трава ↔ сухая земля
-	vec3 grass = mix(vec3(0.16, 0.22, 0.10), vec3(0.28, 0.30, 0.14), n2);
-	vec3 dirt = mix(vec3(0.22, 0.18, 0.13), vec3(0.30, 0.25, 0.18), n2);
+	vec3 grass = mix(grass_a, grass_b, n2);
+	vec3 dirt = mix(dirt_a, dirt_b, n2);
 	vec3 col = mix(grass, dirt, smoothstep(0.5, 0.75, n1) * 0.7);
 	col *= 0.9 + 0.2 * h;
 	// травинки: светлые вертикальные штрихи

@@ -79,6 +79,9 @@ jobs:
       - name: Автотест (автоигрок проходит пролог)
         run: timeout 120 ~/godot-bin/godot --headless --path . -- --autoplay
 
+      - name: Автотест «Бесконечной магистрали» (2 случайных перегона)
+        run: timeout 180 ~/godot-bin/godot --headless --path . -- --autoplay --endless=2
+
       - name: Экспорт APK
         run: |
           mkdir -p build

@@ -1,0 +1,19 @@
+{
+	"recipes": [
+		{"id": "torch", "name": "Факел", "cost": {"cloth": 1, "coal": 2}, "give": {"torch": 1}},
+		{"id": "medkit", "name": "Аптечка", "cost": {"cloth": 2, "chem": 1}, "give": {"medkit": 1}},
+		{"id": "ammo", "name": "Патроны ×4", "cost": {"scrap": 1, "chem": 1}, "give": {"ammo": 4}},
+		{"id": "grenade", "name": "Шумовая граната", "cost": {"scrap": 1, "chem": 1}, "give": {"grenade": 1}},
+		{"id": "battery", "name": "Батарея фонаря", "cost": {"scrap": 1, "chem": 1}, "give": {"battery": 60}},
+		{"id": "shotgun", "name": "Обрез из труб", "cost": {"scrap": 4, "cloth": 1}, "give": {"shotgun": 1}, "once": true},
+		{"id": "patch", "name": "Залатать дрезину", "cost": {"scrap": 2}, "give": {"train_hp": 50}}
+	],
+	"upgrades": [
+		{"id": "engine", "name": "Двигатель", "desc": "быстрее, меньше угля", "levels": [{"scrap": 3, "chem": 1}, {"scrap": 6, "chem": 2}]},
+		{"id": "armor", "name": "Обшивка", "desc": "ржавцы грызут слабее", "levels": [{"scrap": 3, "cloth": 1}, {"scrap": 6, "cloth": 2}]},
+		{"id": "lamp", "name": "Прожектор", "desc": "шире безопасный свет", "levels": [{"scrap": 2, "chem": 1}, {"scrap": 4, "chem": 2}]},
+		{"id": "stove", "name": "Печка", "desc": "в дрезине теплее и спокойнее", "levels": [{"scrap": 2, "cloth": 1}]},
+		{"id": "bunker", "name": "Угольный бункер", "desc": "больше угля в запасе", "levels": [{"scrap": 2}, {"scrap": 4}]},
+		{"id": "turret", "name": "Турель", "desc": "сама стреляет у дрезины (патроны)", "need_flag": "turret_plan", "levels": [{"scrap": 4, "chem": 2}]}
+	]
+}
