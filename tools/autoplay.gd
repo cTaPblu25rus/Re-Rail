@@ -26,6 +26,12 @@ var stop_after := -1
 var plan: Array = []
 var did := {} # разовые шаги (craft/upgrade), уже выполненные
 var talk_step := 0
+var last_pos := Vector2.ZERO
+var stuck_t := 0.0
+var detour_t := 0.0
+var detour_sign := 1.0
+var clearing: Dictionary = {} # завал, который сейчас разбираем
+var endless_goal := 0 # --endless=N: пройти N перегонов
 
 
 func _ready() -> void:
@@ -37,6 +43,11 @@ func _ready() -> void:
 			stop_after = int(a.trim_prefix("--stop-after="))
 	Engine.time_scale = 3.0 if shots_dir == "" else 1.0
 	plan = game.chapter.bot
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--endless="):
+			endless_goal = int(a.trim_prefix("--endless="))
+	if plan.size() == 1 and plan[0] == "auto":
+		plan = _auto_plan()
 	if OS.get_cmdline_user_args().has("--continue"):
 		print("LOAD: " + state_line())
 		done = true
@@ -61,7 +72,7 @@ func _process(delta: float) -> void:
 	t += delta
 	total_t += delta
 	phase_t += delta
-	if game.finished:
+	if game.finished or (endless_goal > 0 and game.endless_depth > endless_goal):
 		_finish(true)
 		return
 	if t > CHAPTER_TIMEOUT:
@@ -91,6 +102,9 @@ func _process(delta: float) -> void:
 				t, phase, str(plan[phase]), game.stats.health, game.inv.scrap, game.inv.cloth, game.inv.chem, game.inv.coal, game.karma])
 	_fight()
 	_survive()
+	if not clearing.is_empty():
+		_clear_step()
+		return
 	if phase < plan.size():
 		_step(plan[phase])
 	if shots_dir != "":
@@ -114,6 +128,11 @@ func _step(s: Array) -> void:
 				_next()
 				return
 			var target: float = s[1]
+			var blk: Dictionary = game.blocker_ahead()
+			if not blk.is_empty() and target > blk.x - 62.0 and game.train_x >= blk.x - 75.0 and absf(game.train_v) < 8.0:
+				print("BOT: завал на путях у x=%d — разбираю" % int(blk.x))
+				clearing = blk
+				return
 			var dx: float = target - game.train_x
 			if absf(dx) < 25.0 and absf(game.train_v) < 8.0:
 				_next()
@@ -125,6 +144,10 @@ func _step(s: Array) -> void:
 				_walk_to(game.door_pos(), 24.0)
 				if game.context().kind == "board":
 					game.press_context(true)
+				return
+			var blk2: Dictionary = game.blocker_ahead()
+			if not blk2.is_empty() and game.train_x >= blk2.x - 75.0 and absf(game.train_v) < 8.0:
+				clearing = blk2
 				return
 			game.ctl.move = Vector2(1, 0) # смена главы перезагрузит сцену
 		"exit":
@@ -235,6 +258,51 @@ func _step(s: Array) -> void:
 			_next()
 
 
+## Завал: выйти, подойти, держать «Разобрать», вернуться в дрезину.
+func _clear_step() -> void:
+	if clearing.cleared:
+		if game.aboard:
+			clearing = {}
+			return
+		game.press_context(false)
+		_walk_to(game.door_pos(), 24.0)
+		if game.context().kind == "board":
+			game.press_context(true)
+		return
+	if game.aboard:
+		game.ctl.move = Vector2.ZERO
+		game.press_context(true)
+		return
+	if _walk_to(Vector2(clearing.x, game.RAIL_Y + 22.0), 12.0):
+		if not game.ctl.search:
+			game.press_context(true)
+
+
+## План для случайного перегона: обыскать все кучи по порядку, починить цель, дальше.
+func _auto_plan() -> Array:
+	var order := []
+	for i in game.piles.size():
+		order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool: return game.piles[a].pos.x < game.piles[b].pos.x)
+	var out := []
+	var limit: float = game.goal.pos.x + 30.0
+	for i in order:
+		out.append(["drive", minf(game.piles[i].pos.x - 10.0, limit)])
+		out.append(["exit"])
+		out.append(["loot", i])
+		out.append(["board"])
+	out.append(["drive", game.goal.pos.x - 30.0])
+	out.append(["exit"])
+	out.append(["goal"])
+	out.append(["board"])
+	# хлам магистрали — на улучшения дрезины
+	for u in ["engine", "armor", "lamp", "turret", "bunker", "stove"]:
+		out.append(["upgrade", u])
+	out.append(["craft", "shotgun"])
+	out.append(["next"])
+	return out
+
+
 ## Разговор: подойти, открыть диалог и нажимать выборы по индексам; потом закрыть.
 func _talk(id: String, choices: Array) -> void:
 	var n: Dictionary = game.npc(id)
@@ -282,9 +350,19 @@ func _walk_to(target: Vector2, eps: float) -> bool:
 				dir = Vector2(signf(side - from.x), 0)
 			else:
 				dir = Vector2(0, signf(target.y - from.y))
+	# застряли (почти не сдвинулись) — обход в сторону, каждый раз в другую
+	var moved: float = game.player_pos.distance_to(last_pos)
+	last_pos = game.player_pos
+	if detour_t > 0.0:
+		detour_t -= get_process_delta_time()
+		game.ctl.move = (dir.orthogonal() * detour_sign + dir * 0.2).normalized()
+		return false
+	stuck_t = stuck_t + get_process_delta_time() if moved < 0.3 else 0.0
+	if stuck_t > 0.4:
+		stuck_t = 0.0
+		detour_t = 0.9
+		detour_sign = -detour_sign
 	game.ctl.move = dir
-	if phase_t > 1.0 and int(phase_t * 2.0) % 6 == 5:
-		game.ctl.move = dir.orthogonal()
 	return false
 
 
@@ -327,8 +405,9 @@ func _fight() -> void:
 
 func _finish(ok: bool) -> void:
 	done = true
+	var what := "ИГРА ПРОЙДЕНА" if endless_goal == 0 else "МАГИСТРАЛЬ: %d ПЕРЕГОНОВ ПРОЙДЕНО" % (game.endless_depth - 1)
 	print("BOT: %s · игровое время %.0f с · смертей %d · карма %d · концовка «%s» · дрезина: %s" % [
-		"ИГРА ПРОЙДЕНА" if ok else "НЕ ПРОЙДЕНО", total_t, deaths, game.karma, game.ending, str(game.upgrades)])
+		what if ok else "НЕ ПРОЙДЕНО", total_t, deaths, game.karma, game.ending, str(game.upgrades)])
 	if shots_dir != "":
 		await get_tree().create_timer(0.5).timeout
 		_shot("final")

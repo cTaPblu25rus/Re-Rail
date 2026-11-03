@@ -16,7 +16,7 @@ var pressed := -1
 var confirm := ""
 var confirm_idx := -1
 
-var settings := {"music": 0.8, "sfx": 1.0, "vibration": true, "fog_hq": true}
+var settings := {"music": 0.8, "sfx": 1.0, "vibration": true, "fog_hq": true, "endless_unlocked": false, "endless_best": 0}
 
 
 func _ready() -> void:
@@ -61,6 +61,13 @@ func main_menu() -> void:
 	if game.has_save():
 		items.append({"label": "Продолжить", "sub": game.save_summary(), "act": func() -> void: game.boot("continue")})
 	items.append({"label": "Новая игра", "act": _new_game})
+	if settings.endless_unlocked:
+		items.append({"label": "Бесконечная магистраль", "sub": "рекорд: %d перегонов" % int(settings.endless_best), "act": func() -> void:
+			if game.has_save() and confirm != "endless":
+				confirm = "endless"
+				game.say("Сохранение будет перезаписано. Нажми ещё раз.")
+				return
+			game.boot("endless")})
 	items.append({"label": "Настройки", "act": func() -> void: settings_menu(main_menu)})
 	items.append({"label": "Как играть", "act": func() -> void: help_menu(main_menu)})
 	show_screen({"title": "RE-RAIL", "text": "Хроники Пепла", "items": items, "big": true,
@@ -151,6 +158,7 @@ func ending_card() -> void:
 	}
 	var t: Array = texts.get(game.ending, texts.neutral)
 	var help := "Ты помог людям %d раз(а)." % maxi(game.karma, 0) if game.karma >= 0 else "Карма: %d." % game.karma
+	help += "\nОткрыта «Бесконечная магистраль» — в главном меню."
 	show_screen({"title": "Конец · " + t[0], "text": t[1] + "\n\n" + help, "items": [
 		{"label": "В главное меню", "act": func() -> void:
 			game.wipe_save()
@@ -246,6 +254,21 @@ func upgrades_menu() -> void:
 			upgrades_menu()})
 	items.append({"label": "← Верстак", "act": workbench})
 	show_screen({"title": "Улучшения дрезины", "text": _wallet() + " · обшивка %d%%" % int(game.train_hp), "items": items, "back": close})
+
+
+# ------------------------------------------------------------ бесконечная магистраль
+
+func unlock_endless() -> void:
+	if not settings.endless_unlocked:
+		settings.endless_unlocked = true
+		save_settings()
+
+
+func record_endless(done: int) -> void:
+	if done > int(settings.endless_best):
+		settings.endless_best = done
+		save_settings()
+		game.say("Новый рекорд: %d перегонов!" % done)
 
 
 # ------------------------------------------------------------ настройки

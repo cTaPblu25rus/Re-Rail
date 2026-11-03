@@ -13,6 +13,7 @@ const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
 const Interior := preload("res://scripts/interior.gd")
 const Music := preload("res://scripts/music.gd")
+const WorldGen := preload("res://scripts/world_gen.gd")
 const GroundShader := preload("res://shaders/ground.gdshader")
 const FogShader := preload("res://shaders/fog.gdshader")
 
@@ -24,6 +25,9 @@ const AUTOSAVE_EVERY := 45.0
 ## Что делать при (пере)загрузке сцены: "menu", "new" или "continue".
 static var boot_action := "menu"
 static var _card_after_boot := false
+## Глубина «Бесконечной магистрали» (0 — сюжет) и зерно перегона.
+var endless_depth := 0
+var endless_seed := 0
 
 const RAIL_Y := 0.0
 const TRAIN_MAX := 115.0
@@ -113,6 +117,7 @@ var grenades: Array[Dictionary] = []
 var safe := {}
 var goal := {}
 var dog := {}
+var blockers: Array[Dictionary] = []
 
 # --- радио
 var radio_open := false
@@ -145,11 +150,22 @@ func _ready() -> void:
 	autoplay = OS.get_cmdline_user_args().has("--autoplay")
 	if autoplay and boot_action == "menu":
 		boot_action = "continue" if OS.get_cmdline_user_args().has("--continue") else "new"
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--endless"):
+				boot_action = "endless"
 	randomize()
 	_load_data()
 	var save := _read_save() if boot_action == "continue" else {}
 	chapter_i = clampi(int(save.get("chapter", 0)), 0, chapters.size() - 1)
-	chapter = chapters[chapter_i]
+	endless_depth = int(save.get("endless_depth", 0))
+	endless_seed = int(save.get("endless_seed", 0))
+	if boot_action == "endless":
+		endless_depth = 1
+		endless_seed = randi() % 100000
+	if endless_depth > 0:
+		chapter = WorldGen.endless(endless_depth, endless_seed, chapters)
+	else:
+		chapter = chapters[chapter_i]
 	sfx = Sfx.new()
 	add_child(sfx)
 	music = Music.new()
@@ -166,7 +182,7 @@ func _ready() -> void:
 	add_child(menu)
 	menu.apply_settings()
 	match boot_action:
-		"new":
+		"new", "endless":
 			_start_play()
 			_chapter_card()
 			save_game()
@@ -320,6 +336,17 @@ func _build_world() -> void:
 
 	for nd in chapter.npcs:
 		_add_npc(nd)
+
+	# случайные события в пути (одинаковые после загрузки — от зерна главы)
+	for ev in WorldGen.events(chapter, hash(chapter.id) + endless_seed):
+		match ev.kind:
+			"blocker":
+				_add_blocker(float(ev.x))
+			"wanderer":
+				_add_npc({"id": "wanderer", "p": ev.p, "look": "wanderer", "dialog": "wanderer"})
+			"crate":
+				_add_pile(_v(ev.p), ev.loot)
+				piles[piles.size() - 1].sprite.modulate = Color(0.95, 0.75, 0.5)
 
 	# светлячки — добрые огоньки, рядом с ними спокойнее
 	for fp in chapter.fireflies:
@@ -527,6 +554,52 @@ func _add_wreck(pos: Vector2, seed: int) -> void:
 	obstacles.append(Rect2(pos.x - 46, pos.y - 24, 92, 24))
 
 
+## Завал на путях: брёвна и камни поперёк рельсов — дрезина дальше не пройдёт.
+func _add_blocker(x: float) -> void:
+	var img := Image.create(44, 30, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(x)
+	for i in 4:
+		var y := 4 + i * 6
+		img.fill_rect(Rect2i(rng.randi_range(0, 6), y, 36, 5), Color(0.32, 0.22, 0.14).lerp(Color(0.45, 0.32, 0.2), rng.randf()))
+		img.fill_rect(Rect2i(rng.randi_range(0, 6), y, 36, 1), Color(0.5, 0.38, 0.25))
+	for i in 6:
+		img.fill_rect(Rect2i(rng.randi_range(0, 38), rng.randi_range(14, 26), 6, 4), Color(0.4, 0.4, 0.38))
+	var s := Sprite2D.new()
+	s.texture = ImageTexture.create_from_image(img)
+	s.offset = Vector2(0, -15)
+	s.position = Vector2(x, RAIL_Y + 12)
+	ents.add_child(s)
+	blockers.append({"x": x, "node": s, "cleared": false})
+
+
+## Ближайший неразобранный завал впереди дрезины (или пустой словарь).
+func blocker_ahead() -> Dictionary:
+	var best: Dictionary = {}
+	for b in blockers:
+		if not b.cleared and b.x > train_x and (best.is_empty() or b.x < best.x):
+			best = b
+	return best
+
+
+func _near_blocker() -> Dictionary:
+	for b in blockers:
+		if not b.cleared and player_pos.distance_to(Vector2(b.x, RAIL_Y + 22)) < 34.0:
+			return b
+	return {}
+
+
+func _clear_blocker(b: Dictionary) -> void:
+	b.cleared = true
+	b.node.queue_free()
+	inv.scrap += 2
+	sfx.play("clank", -2.0, 0.8)
+	_vibrate(80, 0.7)
+	say("Завал разобран. Хлам +2. Путь свободен.")
+	save_game()
+
+
 func _add_pile(pos: Vector2, loot: Dictionary) -> void:
 	var s := Sprite2D.new()
 	s.texture = Art.scrap_pile(int(pos.x), false)
@@ -643,6 +716,8 @@ func context() -> Dictionary:
 		return {"kind": "goal", "label": "Чинить"}
 	if not safe.is_empty() and not safe.open and player_pos.distance_to(safe.pos) < 26.0:
 		return {"kind": "safe", "label": "Сейф"}
+	if not _near_blocker().is_empty():
+		return {"kind": "clear", "label": "Разобрать"}
 	if not nearest_pile().is_empty():
 		return {"kind": "search", "label": "Обыскать"}
 	return {"kind": "none", "label": "Обыскать"}
@@ -651,7 +726,7 @@ func context() -> Dictionary:
 ## Нажатие контекстной кнопки (down = true) или её отпускание.
 func press_context(down: bool) -> void:
 	var c := context()
-	ctl.search = down and c.kind == "search"
+	ctl.search = down and (c.kind == "search" or c.kind == "clear")
 	if not down:
 		return
 	match c.kind:
@@ -1029,6 +1104,7 @@ func _vibrate(ms: int, amp: float) -> void:
 
 func _ending() -> void:
 	finished = true
+	menu.unlock_endless()
 	if karma >= 2:
 		ending = "good"
 	elif karma >= 0:
@@ -1045,6 +1121,13 @@ func _chapter_card() -> void:
 
 ## Конец главы: дрезина дошла до края перегона после выполненной цели.
 func _advance_chapter() -> void:
+	if endless_depth > 0:
+		endless_depth += 1
+		endless_seed = randi() % 100000
+		menu.record_endless(endless_depth - 1)
+		save_game(true)
+		boot("continue_card")
+		return
 	if chapter_i >= chapters.size() - 1:
 		return
 	chapter_i += 1
@@ -1105,6 +1188,8 @@ func save_summary() -> String:
 		return ""
 	var ci := clampi(int(d.get("chapter", 0)), 0, chapters.size() - 1)
 	var mins := int(float(d.get("time", 0.0)) / 60.0)
+	if int(d.get("endless_depth", 0)) > 0:
+		return "Бесконечная магистраль · перегон %d · %d мин" % [int(d.endless_depth), mins]
 	return "%s · %d мин в пути" % [chapters[ci].name, mins]
 
 
@@ -1118,6 +1203,7 @@ func save_game(fresh: bool = false) -> void:
 		return
 	var d := {
 		"version": SAVE_VERSION, "time": time, "chapter": chapter_i,
+		"endless_depth": endless_depth, "endless_seed": endless_seed,
 		"stats": stats, "inv": inv, "upgrades": upgrades, "flags": flags, "karma": karma,
 		"weapon": weapon, "dog": dog_joined, "train_hp": train_hp, "finished": finished, "ending": ending,
 	}
@@ -1137,6 +1223,7 @@ func save_game(fresh: bool = false) -> void:
 			"flashlight_on": flashlight_on, "torch_left": torch_left,
 			"looted": looted, "echoes": heard, "npcs": talked,
 			"goal_done": goal_done, "safe_open": safe.get("open", false),
+			"blockers": blockers.map(func(b: Dictionary) -> bool: return b.cleared),
 		})
 	var f := FileAccess.open(_save_path(), FileAccess.WRITE)
 	if f:
@@ -1191,6 +1278,11 @@ func load_game(d: Dictionary) -> bool:
 			npcs[i].done = bool(d.npcs[i])
 		if d.goal_done:
 			_complete_goal()
+		var bl: Array = d.get("blockers", [])
+		for i in mini(blockers.size(), bl.size()):
+			if bl[i]:
+				blockers[i].cleared = true
+				blockers[i].node.queue_free()
 		if d.get("safe_open", false) and not safe.is_empty():
 			safe.open = true
 			safe.sprite.texture = Art.safe(true)
@@ -1238,7 +1330,7 @@ func _process(delta: float) -> void:
 	_update_objective()
 	_update_visuals(delta)
 	_update_music()
-	if goal_done and aboard and train_x >= world.end.x - 90.0 and chapter_i < chapters.size() - 1:
+	if goal_done and aboard and train_x >= world.end.x - 90.0 and (chapter_i < chapters.size() - 1 or endless_depth > 0):
 		_advance_chapter()
 
 
@@ -1260,6 +1352,12 @@ func _update_train(delta: float) -> void:
 		train_v = move_toward(train_v, 0.0, TRAIN_ACCEL * 0.8 * delta)
 	# дальше цели главы не проехать, пока она не выполнена: путь закрыт
 	var limit: float = world.end.x - 70.0 if goal_done else goal.pos.x + 40.0
+	var blk := blocker_ahead()
+	if not blk.is_empty() and blk.x - 62.0 < limit:
+		limit = blk.x - 62.0
+		if train_x >= limit - 2.0 and train_v > 1.0 and not flags.has("_blk_%d" % int(blk.x)):
+			flags["_blk_%d" % int(blk.x)] = true
+			say("Завал на путях! Выйди и разбери его.")
 	var nx := clampf(train_x + train_v * delta, 70.0, limit)
 	if nx >= limit and train_v > 1.0 and not goal_done and not flags.has("_blocked_msg_%d" % chapter_i):
 		flags["_blocked_msg_%d" % chapter_i] = true
@@ -1286,6 +1384,14 @@ func _update_player(delta: float) -> void:
 		if step_t > 0.32:
 			step_t = 0.0
 			sfx.play("step", -14.0)
+	var blk := _near_blocker()
+	if ctl.search and not blk.is_empty():
+		search_t += delta * 0.5 # завал разбирать дольше: 2 с
+		if search_t >= 1.0:
+			search_t = 0.0
+			ctl.search = false
+			_clear_blocker(blk)
+		return
 	var pile := nearest_pile()
 	if ctl.search and not pile.is_empty():
 		search_t += delta
@@ -1444,9 +1550,12 @@ func _update_monsters(delta: float) -> void:
 	for i in range(monsters.size() - 1, -1, -1):
 		var m := monsters[i]
 		if m.hp <= 0.0:
-			inv.scrap += 1
 			sfx.play("hit", -6.0, 0.6)
-			say("Тварь рассыпалась. Хлам +1")
+			if randf() < 0.35:
+				inv.scrap += 1
+				say("Тварь рассыпалась. Хлам +1")
+			else:
+				say("Тварь рассыпалась ржавой пылью.")
 			m.node.queue_free()
 			monsters.remove_at(i)
 		elif m.fade <= 0.0 or m.pos.distance_to(player_pos) > 520.0:
@@ -1648,6 +1757,8 @@ func _update_objective() -> void:
 		objective = "Конец. Спасибо, что доехал."
 	elif dead:
 		objective = ""
+	elif not blocker_ahead().is_empty() and aboard and train_x >= blocker_ahead().x - 70.0:
+		objective = "Завал на путях — выйди и разбери"
 	elif goal_done:
 		if not anya.is_empty() and not anya.hidden:
 			objective = "Подойди к Ане"
