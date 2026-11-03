@@ -29,7 +29,7 @@ func _ready() -> void:
 
 
 func _process(_d: float) -> void:
-	ui.visible = game.state == "play"
+	ui.visible = game.state == "play" and not game.interior.open
 	_layout()
 	ui.queue_redraw()
 
@@ -45,7 +45,7 @@ func _layout() -> void:
 	var ctx: Dictionary = game.context()
 	buttons.append({"id": "context", "c": Vector2(s.x - 62, s.y - 138), "r": 26.0, "label": ctx.label, "on": ctx.kind != "none"})
 	if game.aboard:
-		buttons.append({"id": "bench", "c": Vector2(s.x - 118, s.y - 52), "r": 24.0, "label": "Верстак", "on": true})
+		buttons.append({"id": "bench", "c": Vector2(s.x - 118, s.y - 52), "r": 24.0, "label": "Внутрь", "on": absf(game.train_v) < 5.0})
 	else:
 		buttons.append({"id": "flash", "c": Vector2(s.x - 118, s.y - 52), "r": 24.0, "label": "Фонарь", "on": true})
 	buttons.append({"id": "attack", "c": Vector2(s.x - 48, s.y - 52), "r": 26.0, "label": "Атака", "on": not game.aboard})
@@ -76,7 +76,7 @@ func _tuner_rect() -> Rect2:
 # ------------------------------------------------------------ ввод
 
 func _input(event: InputEvent) -> void:
-	if game.state != "play" or game.menu.is_open():
+	if game.state != "play" or game.menu.is_open() or game.interior.open:
 		if not touches.is_empty():
 			_release_all()
 		return
@@ -184,7 +184,7 @@ func _button(id: String, down: bool) -> void:
 	elif id == "attack":
 		game.attack()
 	elif id == "bench":
-		game.menu.workbench()
+		game.interior.enter()
 	elif id == "radio":
 		game.toggle_radio()
 	elif id == "pause":
@@ -235,12 +235,12 @@ func _draw_ui() -> void:
 
 	# ресурсы
 	var inv: Dictionary = game.inv
-	ui.draw_string(font, Vector2(s.x - 206, 70), "Уголь %d/%d  Хлам %d" % [int(inv.coal), int(game.coal_cap()), inv.scrap], HORIZONTAL_ALIGNMENT_LEFT, 150, 10, Color(0.9, 0.85, 0.7))
-	ui.draw_string(font, Vector2(s.x - 206, 82), "Ткань %d  Химия %d" % [inv.cloth, inv.chem], HORIZONTAL_ALIGNMENT_LEFT, 150, 10, Color(0.85, 0.82, 0.75))
-	ui.draw_string(font, Vector2(s.x - 206, 94), "Батарея %d%%" % int(st.battery), HORIZONTAL_ALIGNMENT_LEFT, 120, 10, Color(0.95, 0.9, 0.4))
+	_txt(Vector2(s.x - 206, 70), "Уголь %d/%d  Хлам %d" % [int(inv.coal), int(game.coal_cap()), inv.scrap], 10, Color(0.9, 0.85, 0.7))
+	_txt(Vector2(s.x - 206, 82), "Ткань %d  Химия %d" % [inv.cloth, inv.chem], 10, Color(0.85, 0.82, 0.75))
+	_txt(Vector2(s.x - 206, 94), "Батарея %d%%" % int(st.battery), 10, Color(0.95, 0.9, 0.4))
 	if game.train_hp < 100.0:
 		var hc := Color(1, 0.4, 0.3) if game.train_hp <= 0.0 else Color(0.9, 0.7, 0.5)
-		ui.draw_string(font, Vector2(s.x - 206, 106), "Дрезина %d%%" % int(game.train_hp), HORIZONTAL_ALIGNMENT_LEFT, 120, 10, hc)
+		_txt(Vector2(s.x - 206, 106), "Дрезина %d%%" % int(game.train_hp), 10, hc)
 
 	_draw_minimap(Vector2(s.x - 54, 54), 46.0)
 
@@ -297,6 +297,12 @@ func _draw_ui() -> void:
 		_text_center(s * 0.5 + Vector2(0, 22), "Продолжение следует: Тайшет, конец магистрали…", 12, Color(0.75, 0.75, 0.7))
 
 
+## Текст с тёмной обводкой — читается и на снегу, и в темноте.
+func _txt(p: Vector2, text: String, size: int, c: Color) -> void:
+	ui.draw_string_outline(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 4, Color(0, 0, 0, 0.85))
+	ui.draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, c)
+
+
 func _vignette(s: Vector2, c: Color) -> void:
 	var t := 26.0
 	ui.draw_rect(Rect2(0, 0, s.x, t), c)
@@ -346,7 +352,7 @@ func _round_button(b: Dictionary) -> void:
 		"context":
 			_px(c - Vector2(7, 9), ["..#.#.#", "..#.#.#", ".##.#.#", "#######", "#######", ".######", "..#####", "...###."], Color(0.95, 0.75, 0.6, a))
 		"bench":
-			_px(c - Vector2(9, 7), ["#########", "#########", ".#.....#.", ".#.....#.", ".#.....#.", "##.....##"], Color(0.8, 0.65, 0.45, a))
+			_px(c - Vector2(7, 9), ["...#...", "..###..", ".#####.", "#######", "#.###.#", "#.#.#.#", "#.###.#", "#######"], Color(1.0, 0.7, 0.4, a))
 		"flash":
 			var on: bool = game.flashlight_on
 			_px(c - Vector2(4, 11), [".###.", "#####", ".###.", ".###.", ".###.", ".###.", ".###.", ".###.", ".###.", ".###."], Color(0.75, 0.75, 0.72, a))

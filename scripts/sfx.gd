@@ -36,7 +36,7 @@ func _ready() -> void:
 	streams.bang = _wav(_bang())
 	streams.chime = _wav(_chime())
 	wind = _loop_player(_wind(), -10.0, "Music")
-	drone = _loop_player(_drone(), -16.0, "Music")
+	drone = _loop_player(_drone(), -22.0, "Music")
 	engine = _loop_player(_engine(), -80.0, "SFX")
 	radio_static = _loop_player(_static(), -80.0, "SFX")
 	radio_voice = _loop_player(_voice(), -80.0, "SFX")

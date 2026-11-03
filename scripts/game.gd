@@ -11,6 +11,8 @@ const Art := preload("res://scripts/pixel_art.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
+const Interior := preload("res://scripts/interior.gd")
+const Music := preload("res://scripts/music.gd")
 const GroundShader := preload("res://shaders/ground.gdshader")
 const FogShader := preload("res://shaders/fog.gdshader")
 
@@ -47,6 +49,8 @@ const MOBS := {
 var sfx: Node
 var hud: CanvasLayer
 var menu: CanvasLayer
+var interior: CanvasLayer
+var music: Node
 var autoplay := false
 var state := "menu" # "menu" — главное меню на фоне мира, "play" — игра
 var paused := false
@@ -148,7 +152,12 @@ func _ready() -> void:
 	chapter = chapters[chapter_i]
 	sfx = Sfx.new()
 	add_child(sfx)
+	music = Music.new()
+	add_child(music)
 	_build_world()
+	interior = Interior.new()
+	interior.game = self
+	add_child(interior)
 	hud = Hud.new()
 	hud.game = self
 	add_child(hud)
@@ -548,6 +557,12 @@ func _add_npc(nd: Dictionary) -> void:
 	var hidden: bool = nd.get("hidden", false)
 	node.visible = not hidden
 	npcs.append({"id": nd.id, "pos": node.position, "node": node, "dialog": nd.dialog, "done": false, "hidden": hidden})
+
+
+## Пепел едет с Ильёй и в следующие главы: создаём его рядом с дрезиной.
+func _spawn_companion_dog() -> void:
+	_add_npc({"id": "dog", "p": [train_x + 14, RAIL_Y + 26], "look": "dog", "dialog": "dog"})
+	npcs[npcs.size() - 1].done = true
 
 
 # ============================================================ API для HUD, меню и автоигрока
@@ -1156,8 +1171,9 @@ func load_game(d: Dictionary) -> bool:
 	ending = d.get("ending", "")
 	if d.get("dog", false):
 		dog_joined = true
-		if not dog.is_empty():
-			dog.chain.visible = false
+		if dog.is_empty():
+			_spawn_companion_dog()
+		dog.chain.visible = false
 	_apply_upgrade_visuals()
 	if d.get("in_chapter", false):
 		aboard = bool(d.aboard)
@@ -1198,6 +1214,7 @@ func _process(delta: float) -> void:
 		train_x = 220.0
 		_update_visuals(delta)
 		cam.position = Vector2(300.0 + fmod(time * 14.0, world.size.x - 800.0), RAIL_Y - 10.0)
+		music.mix(0.75, 0.0, 0.0)
 		return
 	if paused:
 		time += delta # сообщения в меню паузы продолжают гаснуть
@@ -1220,13 +1237,14 @@ func _process(delta: float) -> void:
 	_update_radio(delta)
 	_update_objective()
 	_update_visuals(delta)
+	_update_music()
 	if goal_done and aboard and train_x >= world.end.x - 90.0 and chapter_i < chapters.size() - 1:
 		_advance_chapter()
 
 
 func _update_train(delta: float) -> void:
 	var throttle := 0.0
-	if aboard:
+	if aboard and not interior.open:
 		throttle = clampf(ctl.move.x, -1.0, 1.0)
 		if absf(throttle) < 0.2:
 			throttle = 0.0
@@ -1595,6 +1613,9 @@ func _update_radio(delta: float) -> void:
 				radio_echo.done = true
 				if radio_echo.flag != "":
 					flags[radio_echo.flag] = true
+				var journal: Array = flags.get("journal", [])
+				journal.append("%s: %s" % [String(chapter.name).get_slice(" · ", 1), radio_echo.text])
+				flags["journal"] = journal
 				say("Эхо записано в дневник.")
 				if radio_echo.radius < 0.0:
 					stats.sanity = minf(100.0, stats.sanity + 30.0)
@@ -1638,6 +1659,22 @@ func _update_objective() -> void:
 		objective = "%s: нужно %s" % [gd.label, cost_text(goal.cost)]
 	else:
 		objective = gd.label
+
+
+## Адаптивная музыка: дорога в пути, шкатулка в кабине, барабаны рядом с тварями.
+func _update_music() -> void:
+	if dead or finished:
+		music.mix(0.2 if finished else 0.0, 0.6 if finished else 0.0, 0.0)
+		return
+	if interior.open:
+		music.mix(0.0, 0.9, 0.0)
+		return
+	var threat := 0.0
+	if not aboard:
+		for m in monsters:
+			threat = maxf(threat, clampf(1.2 - m.pos.distance_to(player_pos) / 220.0, 0.0, 1.0))
+	var road := (0.45 + 0.4 * clampf(absf(train_v) / TRAIN_MAX, 0.0, 1.0)) if aboard else 0.28
+	music.mix(road * (1.0 - 0.6 * threat), 0.0, threat)
 
 
 func _update_visuals(delta: float) -> void:

@@ -179,6 +179,53 @@ func _step(s: Array) -> void:
 				if game.radio_open:
 					game.toggle_radio()
 				_next()
+		"inside":
+			game.ctl.move = Vector2.ZERO
+			if absf(game.train_v) < 5.0 and not game.interior.open:
+				game.interior.enter()
+			if game.interior.open and (shots_dir == "" or phase_t > 1.2):
+				if shots_dir != "":
+					_shot("c%d_interior" % (game.chapter_i + 1))
+				_next()
+		"outside":
+			game.interior.leave()
+			_next()
+		"bench":
+			# крафт перетаскиванием: выложить ресурсы на стол по одному и собрать
+			var key := "%d:%d" % [game.chapter_i, phase]
+			if not did.has(key):
+				did[key] = true
+				var r: Dictionary = game.recipe(s[1])
+				game.interior.use("bench")
+				for k in r.cost:
+					for n in int(r.cost[k]):
+						game.interior.drop(k)
+			if shots_dir != "" and phase_t < 1.2:
+				return # дать кадру отрисоваться, чтобы снять стол с ресурсами
+			if not did.has(key + "c"):
+				did[key + "c"] = true
+				if shots_dir != "":
+					_shot("c%d_bench" % (game.chapter_i + 1))
+				var r: Dictionary = game.recipe(s[1])
+				var m: Dictionary = game.interior.matched()
+				var ok: bool = game.interior.craft_bench()
+				print("BOT: верстак (перетаскивание) %s → стол узнал «%s», %s" % [s[1], m.get("name", "-"), "собрано" if ok else "НЕ собрано"])
+				if not ok:
+					_finish(false)
+					return
+				game.interior.mode = "room"
+			_next()
+		"sleep", "cook", "stoke":
+			var before: Dictionary = game.stats.duplicate()
+			match s[0]:
+				"sleep":
+					game.interior.sleep()
+				"cook":
+					game.interior.cook()
+				"stoke":
+					game.interior.stoke()
+			print("BOT: %s: рассудок %d→%d, голод %d→%d, тепло %d→%d" % [s[0], before.sanity, game.stats.sanity, before.hunger, game.stats.hunger, before.warmth, game.stats.warmth])
+			_next()
 		"craft", "upgrade":
 			var key := "%d:%d" % [game.chapter_i, phase]
 			if not did.has(key):

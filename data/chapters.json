@@ -34,7 +34,7 @@
 			["drive", 880], ["exit"], ["loot", 0], ["board"],
 			["drive", 1480], ["exit"], ["talk", "family", [1, 0]], ["board"],
 			["drive", 2530], ["exit"], ["loot", 3], ["loot", 4], ["goal"],
-			["radio", 103.7], ["board"], ["craft", "torch"], ["next"]
+			["radio", 103.7], ["board"], ["inside"], ["bench", "torch"], ["sleep"], ["outside"], ["next"]
 		]
 	},
 	{
@@ -113,7 +113,7 @@
 			["drive", 1200], ["exit"], ["talk", "kuzmich", [1, 1]], ["loot", 1], ["board"],
 			["drive", 1900], ["exit"], ["talk", "miner", [0]], ["loot", 2], ["board"],
 			["drive", 2600], ["exit"], ["loot", 3], ["board"],
-			["drive", 2900], ["exit"], ["goal"], ["board"], ["upgrade", "bunker"], ["next"]
+			["drive", 2900], ["exit"], ["goal"], ["board"], ["upgrade", "bunker"], ["upgrade", "stove"], ["inside"], ["cook"], ["stoke"], ["outside"], ["next"]
 		]
 	},
 	{
