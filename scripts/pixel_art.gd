@@ -266,3 +266,160 @@ static func cone_light(size: int, half_angle_deg: float) -> ImageTexture:
 			var near := clampf(r * 6.0, 0.0, 1.0) # не слепит у самой руки
 			img.set_pixel(x, y, Color(1, 1, 1, edge * fall * near))
 	return _tex(img)
+
+
+# ------------------------------------------------------------ новые существа и люди
+
+## Пёс Пепел (16×11). frame 0/1 — бег.
+static func dog(frame: int) -> ImageTexture:
+	var img := _img(16, 11)
+	var fur := Color(0.42, 0.40, 0.38)
+	_rect(img, 3, 3, 9, 4, fur)
+	_rect(img, 11, 1, 4, 4, fur) # голова
+	_rect(img, 14, 3, 2, 2, fur.darkened(0.2)) # морда
+	_rect(img, 12, 0, 1, 2, fur.darkened(0.3)) # ухо
+	_rect(img, 13, 2, 1, 1, Color(0.05, 0.05, 0.05)) # глаз
+	_rect(img, 0, 2 + frame, 3, 1, fur) # хвост
+	var l := 1 if frame == 0 else 0
+	_rect(img, 4 - l, 7, 1, 4, fur.darkened(0.3))
+	_rect(img, 6 + l, 7, 1, 4, fur.darkened(0.3))
+	_rect(img, 9 - l, 7, 1, 4, fur.darkened(0.3))
+	_rect(img, 11 + l, 7, 1, 4, fur.darkened(0.3))
+	_grime(img, Rect2i(0, 0, 16, 11), [fur.lightened(0.15), fur.darkened(0.2)], 0.2, 9)
+	return _tex(img)
+
+
+## Стайник: мелкий тощий ржавец (10×15). Возвращает [тело, глаза].
+static func packer(frame: int) -> Array:
+	var img := _img(10, 15)
+	var eyes := _img(10, 15)
+	var c := Color(0.30, 0.14, 0.08)
+	_rect(img, 3, 0, 4, 4, c)
+	_rect(img, 2, 4, 6, 5, c)
+	_rect(img, 0, 5 + frame, 2, 5, c)
+	_rect(img, 8, 6 - frame, 2, 5, c)
+	_rect(img, 3, 9, 1, 6 - frame, c.darkened(0.2))
+	_rect(img, 6, 9, 1, 5 + frame, c.darkened(0.2))
+	_rect(eyes, 3, 1, 1, 1, Color(1.0, 0.85, 0.2))
+	_rect(eyes, 6, 1, 1, 1, Color(1.0, 0.85, 0.2))
+	return [_tex(img), _tex(eyes)]
+
+
+## Ползун: низкий бронированный, много глаз (24×13). Возвращает [тело, глаза].
+static func crawler(frame: int) -> Array:
+	var img := _img(24, 13)
+	var eyes := _img(24, 13)
+	var shell := Color(0.18, 0.17, 0.16)
+	for x in 20:
+		var hh := int(6.0 * sin(PI * (x + 0.5) / 20.0)) + 2
+		_rect(img, x + 2, 9 - hh, 1, hh, shell.lightened(0.1 * float(x % 4 == 0)))
+	for k in 5:
+		var lx := 4 + k * 4
+		_rect(img, lx, 9, 1, 3 + (k + frame) % 2, shell.darkened(0.3))
+	_grime(img, Rect2i(0, 0, 24, 13), [RUST_DARK, Color(0.3, 0.28, 0.25)], 0.25, 13)
+	for ex in [17, 19, 21]:
+		_rect(eyes, ex, 5, 1, 1, Color(0.6, 1.0, 0.3))
+	return [_tex(img), _tex(eyes)]
+
+
+## Выживший (14×22): разные плащи и шапки по виду.
+static func survivor(look: String) -> ImageTexture:
+	var img := _img(14, 22)
+	var coat := Color(0.30, 0.32, 0.36)
+	var head := Color(0.75, 0.6, 0.5)
+	var hat := Color(0.2, 0.2, 0.22)
+	match look:
+		"family":
+			coat = Color(0.45, 0.30, 0.28)
+			hat = Color(0.55, 0.5, 0.45)
+		"mechanic":
+			coat = Color(0.25, 0.32, 0.45)
+			hat = Color(0.6, 0.45, 0.15)
+		"trader":
+			coat = Color(0.40, 0.34, 0.20)
+			hat = Color(0.25, 0.18, 0.12)
+		"miner":
+			coat = Color(0.22, 0.22, 0.24)
+			hat = Color(0.8, 0.7, 0.2)
+		"hermit":
+			coat = Color(0.45, 0.42, 0.40)
+			hat = Color(0.85, 0.85, 0.85)
+		"anya":
+			coat = Color(0.30, 0.42, 0.36)
+			hat = Color(0.7, 0.15, 0.15) # красный шарф/шапка
+	_rect(img, 4, 0, 6, 3, hat)
+	_rect(img, 5, 3, 5, 4, head)
+	_rect(img, 3, 7, 8, 9, coat)
+	_rect(img, 3, 7, 8, 1, coat.lightened(0.2))
+	if look == "anya":
+		_rect(img, 4, 7, 6, 2, hat)
+	_rect(img, 4, 16, 6, 2, coat.darkened(0.25))
+	_rect(img, 5, 18, 2, 4, Color(0.14, 0.12, 0.10))
+	_rect(img, 8, 18, 2, 4, Color(0.14, 0.12, 0.10))
+	if look == "family":
+		_rect(img, 11, 12, 3, 10, Color(0.5, 0.4, 0.35)) # ребёнок рядом
+		_rect(img, 11, 10, 3, 3, head)
+	if look == "trader":
+		_rect(img, 0, 15, 5, 7, Color(0.35, 0.25, 0.15)) # ящик с товаром
+	return _tex(img)
+
+
+## Цели глав: генератор, стрелка, ворота тоннеля, радиовышка. [тело, свечение]
+static func goal(kind: String, done: bool) -> Array:
+	match kind:
+		"switch":
+			var img := _img(20, 20)
+			var glow := _img(20, 20)
+			_rect(img, 2, 12, 16, 6, IRON_DARK)
+			_rect(img, 8, 6, 4, 7, IRON)
+			var lean := 4 if done else -4
+			for i in 8:
+				_rect(img, 10 + int(lean * i / 8.0), 6 - i, 2, 1, Color(0.7, 0.15, 0.1))
+			_rect(glow, 9, 13, 2, 2, Color(0.3, 1.0, 0.4) if done else Color(0.9, 0.2, 0.1))
+			return [_tex(img), _tex(glow)]
+		"gate":
+			var img := _img(40, 30)
+			var glow := _img(40, 30)
+			_rect(img, 0, 0, 40, 30, Color(0.15, 0.14, 0.13))
+			_rect(img, 4, 4, 32, 26, Color(0.04, 0.04, 0.04) if done else Color(0.30, 0.22, 0.14))
+			if not done:
+				for x in range(6, 36, 5):
+					_rect(img, x, 4, 1, 26, Color(0.2, 0.15, 0.1))
+			_grime(img, Rect2i(0, 0, 40, 30), [RUST, RUST_DARK], 0.15, 4)
+			_rect(glow, 18, 1, 4, 2, Color(0.3, 1.0, 0.4) if done else Color(0.9, 0.2, 0.1))
+			return [_tex(img), _tex(glow)]
+		"tower":
+			var img := _img(26, 60)
+			var glow := _img(26, 60)
+			for y in 58:
+				var half := 2 + int(y * 0.18)
+				_rect(img, 13 - half, y + 2, 1, 1, IRON)
+				_rect(img, 13 + half, y + 2, 1, 1, IRON)
+				if y % 8 == 0:
+					_rect(img, 13 - half, y + 2, half * 2 + 1, 1, IRON_DARK)
+			_rect(glow, 12, 0, 3, 3, Color(1.0, 0.25, 0.15) if done else Color(0.25, 0.08, 0.06))
+			return [_tex(img), _tex(glow)]
+	return generator(done)
+
+
+static func safe(open: bool) -> ImageTexture:
+	var img := _img(16, 16)
+	_rect(img, 1, 2, 14, 14, Color(0.32, 0.34, 0.36))
+	_rect(img, 1, 2, 14, 1, Color(0.5, 0.52, 0.54))
+	if open:
+		_rect(img, 3, 4, 10, 10, Color(0.05, 0.05, 0.05))
+	else:
+		_rect(img, 6, 7, 4, 4, Color(0.15, 0.15, 0.15))
+		_rect(img, 7, 8, 2, 2, Color(0.7, 0.65, 0.4))
+	_grime(img, Rect2i(0, 0, 16, 16), [RUST, RUST_DARK], 0.15, 21)
+	return _tex(img)
+
+
+static func coal_heap(seed: int) -> ImageTexture:
+	var img := _img(26, 12)
+	_rng.seed = seed
+	for y in 12:
+		var half := int(13.0 * sqrt(1.0 - pow((y - 12.0) / 12.0, 2.0)))
+		for x in range(13 - half, 13 + half):
+			img.set_pixel(x, y, Color(0.06, 0.06, 0.07).lerp(Color(0.2, 0.2, 0.22), _rng.randf() * 0.6))
+	return _tex(img)

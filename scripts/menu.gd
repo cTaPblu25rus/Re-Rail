@@ -134,6 +134,120 @@ func help_menu(back_to: Callable) -> void:
 		"items": [{"label": "Назад", "act": back_to}], "back": back_to})
 
 
+# ------------------------------------------------------------ сюжет: главы, диалоги, концовки
+
+func chapter_card() -> void:
+	game.set_paused(true)
+	var ch: Dictionary = game.chapter
+	show_screen({"title": ch.name, "text": ch.intro, "items": [{"label": "В путь", "act": close}], "back": close})
+
+
+func ending_card() -> void:
+	game.set_paused(true)
+	var texts := {
+		"good": ["Светлая дорога", "Аня плачет, уткнувшись тебе в плечо. «Мне говорили о тебе — о старике, который делился углём и не бросал людей». Вы уезжаете на восток вместе, и за дрезиной тянется цепочка огней: те, кому ты помог, идут следом. Магистраль снова живёт."],
+		"neutral": ["Дорога домой", "Аня долго смотрит на тебя, потом берёт за руку. «Поехали домой, папа». Мир не стал лучше, но у тебя снова есть ради кого жечь уголь. Дрезина уходит в метель вдвоём."],
+		"bad": ["Ржавое сердце", "Аня отступает на шаг. «Слухи по магистрали быстрее дрезины… Ты грабил тех, кто замерзал». Она всё же садится в дрезину, но всю дорогу молчит. Ты нашёл дочь — и потерял что-то в себе."],
+	}
+	var t: Array = texts.get(game.ending, texts.neutral)
+	var help := "Ты помог людям %d раз(а)." % maxi(game.karma, 0) if game.karma >= 0 else "Карма: %d." % game.karma
+	show_screen({"title": "Конец · " + t[0], "text": t[1] + "\n\n" + help, "items": [
+		{"label": "В главное меню", "act": func() -> void:
+			game.wipe_save()
+			game.boot("menu")},
+	], "back": func() -> void: pass})
+
+
+func dialog(npc_id: String, node_key: String = "") -> void:
+	var n: Dictionary = game.npc(npc_id)
+	var d: Dictionary = game.dialogs.get(n.get("dialog", ""), {})
+	if d.is_empty():
+		return
+	if node_key == "":
+		node_key = "after" if n.done and d.has("after") else "start"
+	var node: Dictionary = d[node_key]
+	game.set_paused(true)
+	var items := []
+	for ch in node.choices:
+		var c: Dictionary = ch
+		var sub: String = ""
+		if c.has("cost"):
+			sub = "нужно: " + game.cost_text(c.cost)
+		if c.has("need_karma") and game.karma < int(c.need_karma):
+			sub = "он тебе не доверяет"
+		items.append({"label": c.text, "sub": sub, "on": game.choice_allowed(c), "act": func() -> void:
+			game.dialog_choose(npc_id, c)
+			if game.finished:
+				return
+			if c.get("trade", false):
+				trade(npc_id)
+			elif c.has("next"):
+				dialog(npc_id, c.next)
+			else:
+				close()})
+	show_screen({"title": d.name, "text": node.text, "items": items, "back": close})
+
+
+func trade(npc_id: String) -> void:
+	var n: Dictionary = game.npc(npc_id)
+	var d: Dictionary = game.dialogs.get(n.dialog, {})
+	var items := []
+	for offer in d.get("trade", []):
+		var o: Dictionary = offer
+		items.append({"label": "Купить: " + game.cost_text(o.give), "sub": "цена: " + game.cost_text(o.cost),
+			"on": game.can_afford(o.cost), "act": func() -> void:
+				game.pay(o.cost)
+				game.say("Куплено: " + game.give(o.give))
+				game.sfx.play("pickup", -4.0)
+				trade(npc_id)})
+	items.append({"label": "Хватит", "act": close})
+	show_screen({"title": d.name + " · торг", "text": _wallet(), "items": items, "back": close})
+
+
+# ------------------------------------------------------------ верстак и улучшения дрезины
+
+func _wallet() -> String:
+	var i: Dictionary = game.inv
+	return "Хлам %d · Уголь %d/%d · Ткань %d · Химия %d · Патроны %d" % [i.scrap, int(i.coal), int(game.coal_cap()), i.cloth, i.chem, i.ammo]
+
+
+func workbench() -> void:
+	game.set_paused(true)
+	var items := []
+	for r in game.crafting.recipes:
+		var rr: Dictionary = r
+		var sub: String = "нужно: " + game.cost_text(rr.cost)
+		if rr.id == "shotgun" and game.inv.shotgun > 0:
+			sub = "уже есть"
+		items.append({"label": rr.name, "sub": sub, "on": game.can_craft(rr), "act": func() -> void:
+			game.craft(rr.id)
+			workbench()})
+	items.append({"label": "→ Улучшения дрезины", "act": upgrades_menu})
+	items.append({"label": "Закрыть", "act": close})
+	show_screen({"title": "Верстак", "text": _wallet(), "items": items, "back": close})
+
+
+func upgrades_menu() -> void:
+	var items := []
+	for u in game.crafting.upgrades:
+		var uu: Dictionary = u
+		var lvl: int = game.upgrades[uu.id]
+		var cost: Dictionary = game.next_upgrade_cost(uu.id)
+		var sub: String = uu.desc
+		if uu.has("need_flag") and not game.flags.has(uu.need_flag):
+			sub = "нужен чертёж (кто-то из механиков знает)"
+		elif cost.is_empty():
+			sub = "максимум"
+		else:
+			sub += " · нужно: " + game.cost_text(cost)
+		var stars := "●".repeat(lvl) + "○".repeat(uu.levels.size() - lvl)
+		items.append({"label": "%s  %s" % [uu.name, stars], "sub": sub, "on": game.can_upgrade(uu.id), "act": func() -> void:
+			game.do_upgrade(uu.id)
+			upgrades_menu()})
+	items.append({"label": "← Верстак", "act": workbench})
+	show_screen({"title": "Улучшения дрезины", "text": _wallet() + " · обшивка %d%%" % int(game.train_hp), "items": items, "back": close})
+
+
 # ------------------------------------------------------------ настройки
 
 func load_settings() -> void:
@@ -204,9 +318,9 @@ func _draw_ui() -> void:
 	var s := ui.get_viewport_rect().size
 	var big: bool = screen.get("big", false)
 	var items: Array = screen.get("items", [])
-	var w := 330.0
-	var bh := 28.0
-	var gap := 6.0
+	var w := 360.0
+	var bh := 28.0 if items.size() <= 6 else 22.0
+	var gap := 6.0 if items.size() <= 6 else 3.0
 	var text: String = screen.get("text", "")
 	var text_h := 0.0
 	if text != "" and not big:
@@ -239,9 +353,12 @@ func _draw_ui() -> void:
 		var sub: String = it.get("sub", "")
 		var tc := Color(0.98, 0.93, 0.82) if on else Color(0.5, 0.48, 0.44)
 		if sub == "":
-			_center(r.get_center() + Vector2(0, 4), label, 13, tc)
+			_center(r.get_center() + Vector2(0, 4), label, 12, tc)
+		elif bh < 26.0:
+			ui.draw_string(font, r.position + Vector2(8, bh * 0.5 + 4), label, HORIZONTAL_ALIGNMENT_LEFT, w * 0.45, 11, tc)
+			ui.draw_string(font, r.position + Vector2(w * 0.45 + 8, bh * 0.5 + 3), sub, HORIZONTAL_ALIGNMENT_LEFT, w * 0.55 - 12, 8, Color(0.7, 0.7, 0.62))
 		else:
-			_center(r.get_center() + Vector2(0, -1), label, 13, tc)
+			_center(r.get_center() + Vector2(0, -1), label, 12, tc)
 			_center(r.get_center() + Vector2(0, 11), sub, 9, Color(0.7, 0.7, 0.62))
 		y += bh + gap
 	# сообщения поверх меню (подтверждения и т.п.)
