@@ -29,7 +29,7 @@ func _ready() -> void:
 
 
 func _process(_d: float) -> void:
-	ui.visible = game.state == "play" and not game.interior.open
+	ui.visible = game.state == "play" and not game.interior.open and (not game.cinematic or game.radio_open)
 	_layout()
 	ui.queue_redraw()
 

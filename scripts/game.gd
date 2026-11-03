@@ -60,6 +60,8 @@ var state := "menu" # "menu" — главное меню на фоне мира,
 var paused := false
 var vibration := true
 var autosave_t := 0.0
+## Режим съёмки трейлера: без HUD и сохранений, музыку ведёт режиссёр.
+var cinematic := false
 
 # --- данные
 var chapters: Array = []
@@ -153,6 +155,13 @@ func _ready() -> void:
 		for a in OS.get_cmdline_user_args():
 			if a.begins_with("--endless"):
 				boot_action = "endless"
+	var shot_chapter := -1
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shot="):
+			boot_action = "new"
+			cinematic = true
+		elif a.begins_with("--chapter="):
+			shot_chapter = int(a.trim_prefix("--chapter="))
 	randomize()
 	_load_data()
 	var save := _read_save() if boot_action == "continue" else {}
@@ -162,6 +171,8 @@ func _ready() -> void:
 	if boot_action == "endless":
 		endless_depth = 1
 		endless_seed = randi() % 100000
+	if shot_chapter >= 0:
+		chapter_i = shot_chapter
 	if endless_depth > 0:
 		chapter = WorldGen.endless(endless_depth, endless_seed, chapters)
 	else:
@@ -197,6 +208,10 @@ func _ready() -> void:
 		var bot: Node = load("res://tools/autoplay.gd").new()
 		bot.game = self
 		add_child(bot)
+	if cinematic:
+		var dir: Node = load("res://tools/trailer.gd").new()
+		dir.game = self
+		add_child(dir)
 
 
 func _start_play() -> void:
@@ -1199,7 +1214,7 @@ func wipe_save() -> void:
 
 ## fresh = true — сохранить только общий прогресс (новая глава начнётся с начала).
 func save_game(fresh: bool = false) -> void:
-	if state != "play":
+	if state != "play" or cinematic:
 		return
 	var d := {
 		"version": SAVE_VERSION, "time": time, "chapter": chapter_i,
@@ -1585,21 +1600,28 @@ func _spawn_monster() -> void:
 		if not world.grow(-20).has_point(p) or safety(p) > 0.0:
 			continue
 		for g in int(def.group):
-			var gp := p + Vector2(randf_range(-20, 20), randf_range(-20, 20))
-			var node := Node2D.new()
-			var body := Sprite2D.new()
-			var tex: Texture2D = mob_frames[kind][0][0]
-			body.offset = Vector2(0, -tex.get_height() * 0.5)
-			node.add_child(body)
-			var eyes := _glow_sprite(mob_frames[kind][0][1], body.offset)
-			node.add_child(eyes)
-			node.position = gp
-			ents.add_child(node)
-			monsters.append({"kind": kind, "node": node, "body": body, "eyes": eyes, "pos": gp, "hp": float(def.hp),
-				"hit_cd": 0.0, "anim": randf(), "fade": 1.0, "stun": 0.0})
+			spawn_at(kind, p + Vector2(randf_range(-20, 20), randf_range(-20, 20)))
 		var d := p.distance_to(player_pos)
 		sfx.play("growl", linear_to_db(clampf(1.2 - d / 400.0, 0.05, 1.0)), 1.4 if kind == "packer" else (0.6 if kind == "crawler" else 1.0))
 		return
+
+
+## Создать тварь вида kind в точке p (используют спавн и режиссёр трейлера).
+func spawn_at(kind: String, p: Vector2) -> Dictionary:
+	var def: Dictionary = MOBS[kind]
+	var node := Node2D.new()
+	var body := Sprite2D.new()
+	var tex: Texture2D = mob_frames[kind][0][0]
+	body.offset = Vector2(0, -tex.get_height() * 0.5)
+	node.add_child(body)
+	var eyes := _glow_sprite(mob_frames[kind][0][1], body.offset)
+	node.add_child(eyes)
+	node.position = p
+	ents.add_child(node)
+	var m := {"kind": kind, "node": node, "body": body, "eyes": eyes, "pos": p, "hp": float(def.hp),
+		"hit_cd": 0.0, "anim": randf(), "fade": 1.0, "stun": 0.0}
+	monsters.append(m)
+	return m
 
 
 ## Пёс Пепел: ходит рядом, лает на тьму, кусает тварей, чует хлам.
@@ -1774,6 +1796,8 @@ func _update_objective() -> void:
 
 ## Адаптивная музыка: дорога в пути, шкатулка в кабине, барабаны рядом с тварями.
 func _update_music() -> void:
+	if cinematic:
+		return
 	if dead or finished:
 		music.mix(0.2 if finished else 0.0, 0.6 if finished else 0.0, 0.0)
 		return
