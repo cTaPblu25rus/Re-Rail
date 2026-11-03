@@ -10,6 +10,7 @@ extends Node2D
 const Art := preload("res://scripts/pixel_art.gd")
 const Sfx := preload("res://scripts/sfx.gd")
 const Hud := preload("res://scripts/hud.gd")
+const Menu := preload("res://scripts/menu.gd")
 const GroundShader := preload("res://shaders/ground.gdshader")
 const FogShader := preload("res://shaders/fog.gdshader")
 
@@ -23,12 +24,24 @@ const FLASH_RANGE := 175.0
 const FLASH_HALF_ANGLE := 24.0
 const TORCH_TIME := 60.0
 
+const SAVE_PATH := "user://save.json"
+const SAVE_VERSION := 1
+const AUTOSAVE_EVERY := 45.0
+
+## Что делать при (пере)загрузке сцены: "menu", "new" или "continue".
+static var boot_action := "menu"
+
 const ITEMS := ["ammo", "medkit", "crowbar", "torch", "cans"]
 const ITEM_NAMES := {"ammo": "Патроны", "medkit": "Аптечка", "crowbar": "Лом", "torch": "Факел", "cans": "Консервы"}
 
 var sfx: Node
 var hud: CanvasLayer
+var menu: CanvasLayer
 var autoplay := false
+var state := "menu" # "menu" — главное меню на фоне мира, "play" — игра
+var paused := false
+var vibration := true
+var autosave_t := 0.0
 
 # --- управление (пишут HUD или автоигрок)
 var ctl := {"move": Vector2.ZERO, "aim": Vector2.RIGHT, "aiming": false, "search": false}
@@ -90,6 +103,8 @@ var noise_tex: NoiseTexture2D
 
 func _ready() -> void:
 	autoplay = OS.get_cmdline_user_args().has("--autoplay")
+	if autoplay and boot_action == "menu":
+		boot_action = "continue" if OS.get_cmdline_user_args().has("--continue") else "new"
 	randomize()
 	sfx = Sfx.new()
 	add_child(sfx)
@@ -97,11 +112,145 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.game = self
 	add_child(hud)
-	say("Илья: «Держись, родная. Я еду».")
+	menu = Menu.new()
+	menu.game = self
+	add_child(menu)
+	menu.apply_settings()
+	match boot_action:
+		"new":
+			_start_play()
+			say("Илья: «Держись, родная. Я еду».")
+			save_game()
+		"continue":
+			_start_play()
+			if not load_game():
+				say("Сохранение повреждено — начинаем заново.")
+		_:
+			state = "menu"
+			menu.main_menu()
 	if autoplay:
 		var bot: Node = load("res://tools/autoplay.gd").new()
 		bot.game = self
 		add_child(bot)
+
+
+func _start_play() -> void:
+	state = "play"
+	paused = false
+
+
+# ============================================================ меню, пауза, сохранения
+
+## Перезапуск сцены с нужным действием — самый надёжный «чистый лист».
+func boot(action: String) -> void:
+	boot_action = action
+	get_tree().reload_current_scene()
+
+
+func set_paused(p: bool) -> void:
+	paused = p if state == "play" else false
+	if paused:
+		ctl.move = Vector2.ZERO
+		ctl.search = false
+		ctl.aiming = false
+		sfx.set_engine(0.0, false)
+
+
+func apply_settings(st: Dictionary) -> void:
+	vibration = st.vibration
+	if fog_layers.size() > 1:
+		fog_layers[1].visible = st.fog_hq
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_WM_GO_BACK_REQUEST:
+			if menu == null:
+				return
+			if menu.is_open():
+				menu.back()
+			elif state == "play":
+				menu.pause_menu()
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_FOCUS_OUT:
+			if state == "play" and not dead and not autoplay:
+				save_game()
+				if what != NOTIFICATION_WM_CLOSE_REQUEST and menu != null and not menu.is_open():
+					menu.pause_menu()
+
+
+func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+func save_summary() -> String:
+	var d := _read_save()
+	if d.is_empty():
+		return ""
+	var mins := int(float(d.get("time", 0.0)) / 60.0)
+	return "Пролог · %d мин в пути · хлам %d" % [mins, int(d.get("inv", {}).get("scrap", 0))]
+
+
+func wipe_save() -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+
+
+func save_game() -> void:
+	if state != "play" or autoplay and not OS.get_cmdline_user_args().has("--test-save"):
+		return
+	var looted := []
+	for p in piles:
+		looted.append(p.looted)
+	var heard := []
+	for e in echoes:
+		heard.append(e.done)
+	var d := {
+		"version": SAVE_VERSION, "time": time,
+		"stats": stats, "inv": inv,
+		"aboard": aboard, "player": [player_pos.x, player_pos.y], "train_x": train_x,
+		"flashlight_on": flashlight_on, "torch_left": torch_left,
+		"looted": looted, "echoes": heard,
+		"generator_fixed": generator_fixed, "finished": finished,
+	}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(d))
+
+
+func _read_save() -> Dictionary:
+	if not has_save():
+		return {}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return {}
+	var d = JSON.parse_string(f.get_as_text())
+	return d if d is Dictionary else {}
+
+
+func load_game() -> bool:
+	var d := _read_save()
+	if d.is_empty() or int(d.get("version", 0)) != SAVE_VERSION:
+		return false
+	time = float(d.time)
+	for k in stats:
+		stats[k] = float(d.stats.get(k, stats[k]))
+	for k in inv:
+		inv[k] = float(d.inv.get(k, inv[k])) if k == "coal" else int(d.inv.get(k, inv[k]))
+	aboard = bool(d.aboard)
+	player_pos = Vector2(float(d.player[0]), float(d.player[1]))
+	train_x = float(d.train_x)
+	flashlight_on = bool(d.flashlight_on)
+	torch_left = float(d.torch_left)
+	for i in mini(piles.size(), d.looted.size()):
+		if d.looted[i]:
+			piles[i].looted = true
+			piles[i].sprite.texture = Art.scrap_pile(int(piles[i].pos.x), true)
+	for i in mini(echoes.size(), d.echoes.size()):
+		echoes[i].done = bool(d.echoes[i])
+	if d.generator_fixed:
+		_light_station()
+	finished = bool(d.finished)
+	say("Продолжаем путь.")
+	return true
 
 
 # ============================================================ мир
@@ -542,17 +691,22 @@ func _repair() -> void:
 		say("Генератору нужно %d хлама. У тебя %d." % [SCRAP_FOR_GENERATOR, inv.scrap])
 		return
 	inv.scrap -= SCRAP_FOR_GENERATOR
+	_light_station()
+	sfx.play("clank", 0.0, 0.9)
+	_vibrate(200, 1.0)
+	say("Генератор ожил! Пепельная залита светом.")
+	say("Радио затрещало… поймай частоту 103.7")
+	save_game()
+
+
+func _light_station() -> void:
 	generator_fixed = true
 	var g := Art.generator(true)
 	generator_body.texture = g[0]
 	generator_glow.texture = g[1]
 	for l in station_lights:
 		l.enabled = true
-	sfx.play("clank", 0.0, 0.9)
-	_vibrate(200, 1.0)
 	echoes[2].locked = false
-	say("Генератор ожил! Пепельная залита светом.")
-	say("Радио затрещало… поймай частоту 103.7")
 
 
 func _loot(p: Dictionary) -> void:
@@ -580,14 +734,30 @@ func _loot(p: Dictionary) -> void:
 
 
 func _vibrate(ms: int, amp: float) -> void:
-	if OS.has_feature("mobile"):
+	if vibration and OS.has_feature("mobile"):
 		Input.vibrate_handheld(ms, amp)
 
 
 # ============================================================ цикл
 
 func _process(delta: float) -> void:
+	if state == "menu":
+		# главное меню: мир живёт, камера медленно плывёт вдоль путей
+		time += delta
+		ctl.move = Vector2.ZERO
+		train_x = 220.0
+		_update_visuals(delta)
+		cam.position = Vector2(300.0 + fmod(time * 14.0, 2400.0), RAIL_Y - 10.0)
+		return
+	if paused:
+		time += delta # сообщения в меню паузы продолжают гаснуть
+		_update_visuals(0.0)
+		return
 	time += delta
+	autosave_t += delta
+	if autosave_t > AUTOSAVE_EVERY:
+		autosave_t = 0.0
+		save_game()
 	if not dead:
 		_update_train(delta)
 		if not aboard:
@@ -823,6 +993,7 @@ func _update_radio(delta: float) -> void:
 				_vibrate(60, 0.4)
 				if radio_echo.radius < 0.0:
 					finished = true
+					save_game()
 		else:
 			decode_t = 0.0
 	sfx.set_radio(radio_open, radio_signal)

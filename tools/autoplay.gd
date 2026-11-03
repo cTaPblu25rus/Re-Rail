@@ -18,6 +18,7 @@ var shot_t := 0.0
 var shot_n := 0
 var log_phase := -1
 var done := false
+var stop_after := -1
 
 # Последовательность целей: [вид, параметр]
 var plan := [
@@ -40,6 +41,23 @@ func _ready() -> void:
 			shots_dir = a.trim_prefix("--shots=")
 			DirAccess.make_dir_recursive_absolute(shots_dir)
 	Engine.time_scale = 3.0 if shots_dir == "" else 1.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--stop-after="):
+			stop_after = int(a.trim_prefix("--stop-after="))
+	if OS.get_cmdline_user_args().has("--continue"):
+		print("LOAD: " + state_line())
+		get_tree().quit(0)
+		done = true
+
+
+## Снимок состояния для проверки сохранений (--stop-after=N, затем --continue).
+func state_line() -> String:
+	var looted := []
+	for p in game.piles:
+		looted.append(1 if p.looted else 0)
+	return "aboard=%s train=%d player=%d,%d scrap=%d coal=%d health=%d looted=%s gen=%s" % [
+		game.aboard, game.train_x, game.player_pos.x, game.player_pos.y, game.inv.scrap,
+		game.inv.coal, game.stats.health, str(looted), game.generator_fixed]
 
 
 func _process(delta: float) -> void:
@@ -57,6 +75,12 @@ func _process(delta: float) -> void:
 		return
 	if t > TIMEOUT:
 		_finish(false)
+		return
+	if stop_after >= 0 and phase >= stop_after:
+		game.save_game()
+		print("SAVE: " + state_line())
+		done = true
+		get_tree().quit(0)
 		return
 	if phase != log_phase:
 		log_phase = phase

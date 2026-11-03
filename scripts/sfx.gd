@@ -17,6 +17,12 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.seed = 1234
+	for bus in ["Music", "SFX"]:
+		if AudioServer.get_bus_index(bus) == -1:
+			AudioServer.add_bus()
+			var i := AudioServer.bus_count - 1
+			AudioServer.set_bus_name(i, bus)
+			AudioServer.set_bus_send(i, "Master")
 	streams.step = _wav(_step())
 	streams.swing = _wav(_swing())
 	streams.hit = _wav(_hit())
@@ -25,13 +31,14 @@ func _ready() -> void:
 	streams.pickup = _wav(_pickup())
 	streams.clank = _wav(_clank())
 	streams.click = _wav(_click())
-	wind = _loop_player(_wind(), -10.0)
-	drone = _loop_player(_drone(), -16.0)
-	engine = _loop_player(_engine(), -80.0)
-	radio_static = _loop_player(_static(), -80.0)
-	radio_voice = _loop_player(_voice(), -80.0)
+	wind = _loop_player(_wind(), -10.0, "Music")
+	drone = _loop_player(_drone(), -16.0, "Music")
+	engine = _loop_player(_engine(), -80.0, "SFX")
+	radio_static = _loop_player(_static(), -80.0, "SFX")
+	radio_voice = _loop_player(_voice(), -80.0, "SFX")
 	for i in 10:
 		var p := AudioStreamPlayer.new()
+		p.bus = "SFX"
 		add_child(p)
 		_players.append(p)
 
@@ -63,13 +70,14 @@ func set_radio(open: bool, signal_level: float) -> void:
 
 # ------------------------------------------------------------ синтез
 
-func _loop_player(samples: PackedFloat32Array, vol: float) -> AudioStreamPlayer:
+func _loop_player(samples: PackedFloat32Array, vol: float, bus: String) -> AudioStreamPlayer:
 	var wav := _wav(samples)
 	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	wav.loop_end = samples.size()
 	var p := AudioStreamPlayer.new()
 	p.stream = wav
 	p.volume_db = vol
+	p.bus = bus
 	add_child(p)
 	p.play()
 	return p

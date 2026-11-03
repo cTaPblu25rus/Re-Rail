@@ -29,6 +29,7 @@ func _ready() -> void:
 
 
 func _process(_d: float) -> void:
+	ui.visible = game.state == "play"
 	_layout()
 	ui.queue_redraw()
 
@@ -51,6 +52,7 @@ func _layout() -> void:
 	for i in n:
 		buttons.append({"id": "item:" + game.ITEMS[i], "rect": Rect2(x0 + i * (slot + 4.0), s.y - 50, slot, slot), "on": true})
 	buttons.append({"id": "radio", "rect": Rect2(s.x - 206, 8, 96, 48), "on": true})
+	buttons.append({"id": "pause", "rect": Rect2(164, 8, 24, 24), "on": true})
 
 
 func _hit_button(p: Vector2) -> Dictionary:
@@ -71,6 +73,10 @@ func _tuner_rect() -> Rect2:
 # ------------------------------------------------------------ ввод
 
 func _input(event: InputEvent) -> void:
+	if game.state != "play" or game.menu.is_open():
+		if not touches.is_empty():
+			_release_all()
+		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_touch_down(event.index, event.position)
@@ -136,6 +142,13 @@ func _touch_up(idx: int) -> void:
 	touches.erase(idx)
 
 
+## Меню открылось посреди касаний — отпустить всё, чтобы Илья не шагал сам.
+func _release_all() -> void:
+	for idx in touches.keys():
+		_touch_up(idx)
+	touches.clear()
+
+
 func _has_kind(k: String) -> bool:
 	for t in touches.values():
 		if t.kind == k:
@@ -169,6 +182,8 @@ func _button(id: String, down: bool) -> void:
 		game.attack()
 	elif id == "radio":
 		game.toggle_radio()
+	elif id == "pause":
+		game.menu.pause_menu()
 	elif id.begins_with("item:"):
 		game.use_item(id.trim_prefix("item:"))
 
@@ -218,6 +233,13 @@ func _draw_ui() -> void:
 	ui.draw_string(font, Vector2(s.x - 206, 86), "Батарея %d%%" % int(st.battery), HORIZONTAL_ALIGNMENT_LEFT, 120, 11, Color(0.95, 0.9, 0.4))
 
 	_draw_minimap(Vector2(s.x - 54, 54), 46.0)
+
+	# пауза
+	var pr := Rect2(164, 8, 24, 24)
+	ui.draw_rect(pr, PANEL)
+	ui.draw_rect(pr, EDGE, false, 1.0)
+	ui.draw_rect(Rect2(pr.position + Vector2(8, 6), Vector2(3, 12)), Color(0.9, 0.85, 0.7))
+	ui.draw_rect(Rect2(pr.position + Vector2(13, 6), Vector2(3, 12)), Color(0.9, 0.85, 0.7))
 
 	# тюнер
 	if game.radio_open and not game.finished:
