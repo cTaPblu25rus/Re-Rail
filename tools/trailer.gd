@@ -57,10 +57,10 @@ func _setup() -> void:
 			g.train_v = 90.0
 		"radio":
 			g.aboard = false
-			g.player_pos = Vector2(1290, -40)
+			g.player_pos = Vector2(1300, -60)
 			g.facing = Vector2.UP
 			g.radio_open = true
-			g.radio_freq = 91.6
+			g.radio_freq = 91.0
 		"fight":
 			g.aboard = false
 			g.player_pos = Vector2(1000, 60)
@@ -110,7 +110,7 @@ func _setup() -> void:
 		"station":
 			g._complete_goal()
 			g.aboard = false
-			g.player_pos = Vector2(2700, -40)
+			g.player_pos = Vector2(2800, -112)
 			g.facing = Vector2.UP
 			g.train_x = 2600.0
 		"title", "music":
@@ -132,7 +132,7 @@ func _process(delta: float) -> void:
 		"drive":
 			g.ctl.move = Vector2(1, 0)
 		"radio":
-			g.radio_freq = minf(91.6, 89.0 + t * 1.6) # стрелка ползёт к частоте эха
+			g.radio_freq = snappedf(minf(94.2, 91.0 + t * 1.6), 0.1) # стрелка ползёт к частоте эха
 		"fight":
 			# тьма → твари подходят → вспышка фонаря → два выстрела → граната
 			_aim_nearest()
@@ -157,7 +157,7 @@ func _process(delta: float) -> void:
 			g.ctl.move = Vector2(0.8, -0.1)
 			g.ctl.aiming = false
 		"station":
-			g.ctl.move = Vector2(0.1, -0.15)
+			g.ctl.move = Vector2(-0.35, 0.0)
 		"music":
 			# подложка: спокойная дорога → бой → выдох
 			var calm := 1.0 - smoothstep(9.0, 12.0, t)

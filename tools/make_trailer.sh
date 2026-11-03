@@ -38,6 +38,12 @@ for entry in "${SHOTS[@]}"; do
 	# в тексте титров '|' — перенос строки: склеиваем хвост обратно
 	args="${entry#*|*|}"
 	dir="$OUT/shots/$name"
+	echo "file '$dir/clip.mp4'" >> "$LIST"
+	TOTAL=$(python3 -c "print($TOTAL+$len)")
+	# ONLY="04 06" — переснять только эти сцены, остальные взять готовыми
+	if [[ -n "${ONLY:-}" && " $ONLY " != *" $name "* && -f "$dir/clip.mp4" ]]; then
+		continue
+	fi
 	rm -rf "$dir"; mkdir -p "$dir"
 	frames=$(python3 -c "print(int(round($len*$FPS)))")
 	echo ">> сцена $name ($len с): $args"
@@ -58,22 +64,23 @@ for entry in "${SHOTS[@]}"; do
 	ffmpeg -loglevel error -y -framerate $FPS -i "$dir/f%08d.png" -i "$dir/f.wav" \
 		-t "$len" -c:v libx264 -pix_fmt yuv420p -preset veryfast -crf 18 \
 		-c:a aac -ar 48000 -ac 2 -b:a 160k -shortest "$dir/clip.mp4"
-	echo "file '$dir/clip.mp4'" >> "$LIST"
-	TOTAL=$(python3 -c "print($TOTAL+$len)")
 done
 
 echo ">> музыкальная подложка ($TOTAL с)"
 mdir="$OUT/shots/music"
-rm -rf "$mdir"; mkdir -p "$mdir"
 mframes=$(python3 -c "print(int(round(($TOTAL+4)*$FPS)))")
+if [[ -z "${ONLY:-}" || ! -f "$mdir/f.wav" ]]; then
+rm -rf "$mdir"; mkdir -p "$mdir"
 xvfb-run -a -s "-screen 0 1400x800x24" "$GODOT" --path . --rendering-driver opengl3 \
 	--resolution 320x180 --write-movie "$mdir/f.png" --fixed-fps $FPS --quit-after "$mframes" \
 	-- --shot=music --chapter=0 "--len=$TOTAL" > "$mdir/log.txt" 2>&1 || true
+fi
 
 echo ">> сборка"
 ffmpeg -loglevel error -y -f concat -safe 0 -i "$LIST" -c copy "$OUT/shots/scenes.mp4"
 # музыка стартует через 2.5 с (пока синтезируется), поэтому берём её с 3-й секунды
 ffmpeg -loglevel error -y -i "$OUT/shots/scenes.mp4" -ss 3 -i "$mdir/f.wav" \
 	-filter_complex "[1:a]volume=1.5,afade=t=in:d=1.5,afade=t=out:st=$(python3 -c "print($TOTAL-2.5)"):d=2.5[m];[0:a]volume=1.0[s];[s][m]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]" \
-	-map 0:v -map "[a]" -c:v copy -c:a aac -b:a 192k "$OUT/re-rail-trailer.mp4"
+	-map 0:v -map "[a]" -vf "scale=1280:720:flags=neighbor" -c:v libx264 -pix_fmt yuv420p -preset slow -crf 18 \
+	-c:a aac -b:a 192k -movflags +faststart "$OUT/re-rail-trailer.mp4"
 echo ">> готово: $OUT/re-rail-trailer.mp4 ($TOTAL с)"

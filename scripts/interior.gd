@@ -131,7 +131,7 @@ func _btn(name: String) -> Rect2:
 # ------------------------------------------------------------ ввод
 
 func _input(event: InputEvent) -> void:
-	if not open or game.menu.is_open():
+	if not open or game.menu.is_open() or game.cinematic:
 		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
@@ -394,7 +394,9 @@ func _draw_ui() -> void:
 		ui.draw_rect(Rect2(-15, -3, 4, 2), Color(0.38, 0.36, 0.34))
 		ui.draw_set_transform(Vector2.ZERO)
 	# подписи горячих точек
-	if mode == "room":
+	if mode == "room" and game.cinematic:
+		pass # в трейлере — чистая картинка без подписей
+	elif mode == "room":
 		for key in SPOTS:
 			var r: Rect2 = SPOTS[key]
 			var c := o + (r.position + Vector2(r.size.x * 0.5, -2)) * k
